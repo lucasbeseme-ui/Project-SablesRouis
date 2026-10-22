@@ -1,0 +1,55 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Find the project folder
+        id: find
+        run: |
+          DIR=$(dirname "$(find . -name gradlew -not -path './.git/*' | head -n 1)")
+          echo "Project folder: $DIR"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Make sure the Android SDK pieces are present
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" || true
+
+      - name: Build the debug APK
+        working-directory: ${{ steps.find.outputs.dir }}
+        run: sh ./gradlew --no-daemon assembleDebug
+
+      - name: Keep the APK as a download on this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: SablesRouis-debug-apk
+          path: ${{ steps.find.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish the APK as a release
+        working-directory: ${{ steps.find.outputs.dir }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk SablesRouis-build-${{ github.run_number }}.apk
+          gh release create "build-${{ github.run_number }}" "SablesRouis-build-${{ github.run_number }}.apk" \
+            --title "Build ${{ github.run_number }}" \
+            --notes "Debug build of the Sables Rouis live wallpaper. Uninstall the previous build before installing this one."
